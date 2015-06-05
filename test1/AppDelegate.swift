@@ -6,20 +6,188 @@
 //  Copyright (c) 2015 Patrick Chang. All rights reserved.
 //
 
+import Foundation
 import UIKit
 import CoreData
+import UIKit
+
+import CoreLocation
+import CoreMotion
+
+extension NSURLSessionTask{ func start(){
+    self.resume() }
+}
+
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
 
+class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate {
+    
+    //location & activity tracking variables
     var window: UIWindow?
-
-
+    var locationManager: CLLocationManager!
+    var seenError : Bool = false
+    var locationFixAchieved : Bool = false
+    var locationStatus : NSString = "Not Started"
+    let activityManager: CMMotionActivityManager = CMMotionActivityManager()
+    let dataProcessingQueue = NSOperationQueue()
+    //server upload variables
+    var locationLongitude = ""
+    var locationLatitude = ""
+    var activityType = ""
+    var activityConfidence = ""
+    
     func application(application: UIApplication, didFinishLaunchingWithOptions launchOptions: [NSObject: AnyObject]?) -> Bool {
-        // Override point for customization after application launch.
+        initLocationManager();
         return true
     }
+    
+    // Location Manager helper stuff
+    func initLocationManager() {
+        
+        seenError = false
+        locationFixAchieved = false
+        locationManager = CLLocationManager()
+        locationManager.delegate = self
+        //locationManager.locationServicesEnabled
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.distanceFilter = 100
+        locationManager.requestAlwaysAuthorization()
+    }
+    
+    // Location Manager Delegate stuff
+    // If failed
+    func locationManager(manager: CLLocationManager!, didFailWithError error: NSError!) {
+        locationManager.stopUpdatingLocation()
+        if ((error) != nil) {
+            if (seenError == false) {
+                seenError = true
+                print(error)
+            }
+        }
+    }
+    
+    func locationManager(manager: CLLocationManager!, didUpdateLocations locations: [AnyObject]!) {
+        //if (locationFixAchieved == false) {
+            locationFixAchieved = true
+            var speed = 0.0
+            var locationArray = locations as NSArray
+            var locationObj = locationArray.lastObject as! CLLocation
+            var coord = locationObj.coordinate
+            println(coord.latitude)
+            println(coord.longitude)
+            println(locationObj.timestamp)
+            speed = locationObj.speed
+            self.locationLongitude = "\(coord.longitude)"
+            self.locationLatitude = "\(coord.latitude)"
+            self.activityManager.startActivityUpdatesToQueue(self.dataProcessingQueue) {
+            data in
+            dispatch_async(dispatch_get_main_queue()) {
+                if data.confidence == CMMotionActivityConfidence.Low {
+                    self.activityConfidence = "low"
+                } else if data.confidence == CMMotionActivityConfidence.Medium {
+                    self.activityConfidence = "medium"
+                } else if data.confidence == CMMotionActivityConfidence.High {
+                    self.activityConfidence = "high"
+                } else {
+                    self.activityConfidence = "There was a problem getting confidence"
+                }
+                if data.running {
+                    println("the current activity is running")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "running"
+                }; if data.cycling {
+                    println("the current activity is cycling")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "cycling"
+                };if data.walking {
+                    println("the current activity is walking")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "walking"
+                }; if data.automotive && speed > 15.0{
+                    println("the current activity is automotive")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "automotive"
+                }; if data.stationary{
+                    println("the current activity is stationary")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "stationary"
+                }; if data.unknown {
+                    println("the current activity is unknown")
+                    self.activityManager.stopActivityUpdates()
+                    self.activityType = "unknown"
+                }
+                println(data.confidence)
+                println(data.timestamp)
+                }
+        }
+        sendToServer(locationLongitude, latitudeString: locationLatitude, activityString: activityType, confidenceString: activityConfidence)
+        
 
+    }
+    
+    // authorization status
+    func locationManager(manager: CLLocationManager!,
+        didChangeAuthorizationStatus status: CLAuthorizationStatus) {
+            var shouldIAllow = false
+            switch status {
+            case CLAuthorizationStatus.Restricted:
+                locationStatus = "Restricted Access to location"
+            case CLAuthorizationStatus.Denied:
+                locationStatus = "User denied access to location"
+            case CLAuthorizationStatus.NotDetermined:
+                locationStatus = "Status not determined"
+            default:
+                locationStatus = "Allowed to location Access"
+                shouldIAllow = true
+            }
+            NSNotificationCenter.defaultCenter().postNotificationName("LabelHasbeenUpdated", object: nil)
+            if (shouldIAllow == true) {
+                NSLog("Location to Allowed")
+                // Start location services
+                locationManager.startUpdatingLocation()
+            } else {
+                NSLog("Denied access: \(locationStatus)")
+            }
+    }
+
+    func sendToServer(longitudeString: String, latitudeString: String, activityString: String, confidenceString: String) {
+        var batteryLeft = ""
+        let myUrl = NSURL(string: "http://epiwork.hcii.cs.cmu.edu/~afsaneh/script2.php");
+        let request = NSMutableURLRequest(URL:myUrl!);
+        request.HTTPMethod = "POST";
+        //modify strings for formatting
+        let stringBuffer = ","
+        let deviceString = UIDevice.currentDevice().identifierForVendor.UUIDString + stringBuffer
+        UIDevice.currentDevice().batteryMonitoringEnabled = true
+        batteryLeft = "\(UIDevice.currentDevice().batteryLevel*100)"
+        println(batteryLeft)
+        let batteryString = batteryLeft + stringBuffer
+        let longitudeString2 = longitudeString + stringBuffer
+        let latitudeString2 = latitudeString + stringBuffer
+        let activityString2 = activityString + stringBuffer
+        let confidenceString2 = confidenceString + stringBuffer
+        // Compose a query string
+        let postString = "deviceID=\(deviceString)&batteryLeft=\(batteryString)&longitude=\(longitudeString2)&latitude=\(latitudeString2)&type=\(activityString2)&confidence=\(confidenceString2)&timestamp=\(NSDate())";
+        
+        request.HTTPBody = postString.dataUsingEncoding(NSUTF8StringEncoding);
+        
+        let task = NSURLSession.sharedSession().dataTaskWithRequest(request) {
+            data, response, error in
+            if error != nil {
+                println("error=\(error)")
+                return
+            }
+            var err: NSError?
+            var myJSON = NSJSONSerialization.JSONObjectWithData(data, options: .MutableLeaves, error:&err) as? NSDictionary
+        }
+        println("data sent to server")
+        task.resume()
+        
+    }
+
+    
     func applicationWillResignActive(application: UIApplication) {
         // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
         // Use this method to pause ongoing tasks, disable timers, and throttle down OpenGL ES frame rates. Games should use this method to pause the game.
@@ -43,6 +211,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Saves changes in the application's managed object context before the application terminates.
         self.saveContext()
     }
+
 
     // MARK: - Core Data stack
 
