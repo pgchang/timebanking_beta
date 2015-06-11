@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>IDESourceControlProjectFavoriteDictionaryKey</key>
+	<false/>
+	<key>IDESourceControlProjectIdentifier</key>
+	<string>B3E1ED21-D4F2-47F6-B536-67276F5E5F75</string>
+	<key>IDESourceControlProjectName</key>
+	<string>TimebankingDataCollection</string>
+	<key>IDESourceControlProjectOriginsDictionary</key>
+	<dict>
+		<key>310E7327D722B927053B8E0E518070AB47ECF73D</key>
+		<string>https://github.com/pgchang/timebanking_beta.git</string>
+	</dict>
+	<key>IDESourceControlProjectPath</key>
+	<string>TimebankingDataCollection.xcodeproj</string>
+	<key>IDESourceControlProjectRelativeInstallPathDictionary</key>
+	<dict>
+		<key>310E7327D722B927053B8E0E518070AB47ECF73D</key>
+		<string>../..</string>
+	</dict>
+	<key>IDESourceControlProjectURL</key>
+	<string>https://github.com/pgchang/timebanking_beta.git</string>
+	<key>IDESourceControlProjectVersion</key>
+	<integer>111</integer>
+	<key>IDESourceControlProjectWCCIdentifier</key>
+	<string>310E7327D722B927053B8E0E518070AB47ECF73D</string>
+	<key>IDESourceControlProjectWCConfigurations</key>
+	<array>
+		<dict>
+			<key>IDESourceControlRepositoryExtensionIdentifierKey</key>
+			<string>public.vcs.git</string>
+			<key>IDESourceControlWCCIdentifierKey</key>
+			<string>310E7327D722B927053B8E0E518070AB47ECF73D</string>
+			<key>IDESourceControlWCCName</key>
+			<string>test1</string>
+		</dict>
+	</array>
+</dict>
+</plist>

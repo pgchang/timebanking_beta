@@ -13,6 +13,32 @@ import UIKit
 
 import CoreLocation
 import CoreMotion
+import SystemConfiguration
+
+public class Reachability {
+    
+    class func isConnectedToNetwork() -> Bool {
+        
+        var zeroAddress = sockaddr_in(sin_len: 0, sin_family: 0, sin_port: 0, sin_addr: in_addr(s_addr: 0), sin_zero: (0, 0, 0, 0, 0, 0, 0, 0))
+        zeroAddress.sin_len = UInt8(sizeofValue(zeroAddress))
+        zeroAddress.sin_family = sa_family_t(AF_INET)
+        
+        let defaultRouteReachability = withUnsafePointer(&zeroAddress) {
+            SCNetworkReachabilityCreateWithAddress(nil, UnsafePointer($0)).takeRetainedValue()
+        }
+        
+        var flags: SCNetworkReachabilityFlags = 0
+        if SCNetworkReachabilityGetFlags(defaultRouteReachability, &flags) == 0 {
+            return false
+        }
+        
+        let isReachable = (flags & UInt32(kSCNetworkFlagsReachable)) != 0
+        let needsConnection = (flags & UInt32(kSCNetworkFlagsConnectionRequired)) != 0
+        
+        return (isReachable && !needsConnection) ? true : false
+    }
+    
+}
 
 extension NSURLSessionTask{ func start(){
     self.resume() }
@@ -32,10 +58,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
     let activityManager: CMMotionActivityManager = CMMotionActivityManager()
     let dataProcessingQueue = NSOperationQueue()
     //server upload variables
-    var locationLongitude = ""
-    var locationLatitude = ""
-    var activityType = ""
-    var activityConfidence = ""
+    var locationLongitude = "initLong"
+    var locationLatitude = "initLat"
+    var activityType = "initAct"
+    var activityConfidence = "initConf"
+    var offlineUpload = [[String]]()
+    var uploadContents = ["lat", "long", "UNKNOWN", "conf", "timestamp", "timezone", "speed"]
+    var oldTime = NSDate().timeIntervalSince1970
+    var uploadString = ""
     
     func application(application: UIApplication, didFinishLaunchingWithOptions launchOptions: [NSObject: AnyObject]?) -> Bool {
         initLocationManager();
@@ -45,13 +75,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
     // Location Manager helper stuff
     func initLocationManager() {
         
+        UIDevice.currentDevice().batteryMonitoringEnabled = true
         seenError = false
         locationFixAchieved = false
         locationManager = CLLocationManager()
         locationManager.delegate = self
         //locationManager.locationServicesEnabled
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        locationManager.pausesLocationUpdatesAutomatically = true
         locationManager.distanceFilter = 100
         locationManager.requestAlwaysAuthorization()
     }
@@ -71,16 +102,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
     func locationManager(manager: CLLocationManager!, didUpdateLocations locations: [AnyObject]!) {
         //if (locationFixAchieved == false) {
             locationFixAchieved = true
+            let tracking = NSEntityDescription.insertNewObjectForEntityForName("Tracking", inManagedObjectContext: self.managedObjectContext!) as! Tracking
             var speed = 0.0
             var locationArray = locations as NSArray
             var locationObj = locationArray.lastObject as! CLLocation
             var coord = locationObj.coordinate
-            println(coord.latitude)
-            println(coord.longitude)
-            println(locationObj.timestamp)
-            speed = locationObj.speed
+            var batchString = ""
+            //println(coord.latitude)
+            //println(coord.longitude)
+            //println(locationObj.timestamp)
             self.locationLongitude = "\(coord.longitude)"
             self.locationLatitude = "\(coord.latitude)"
+            tracking.longitude = self.locationLongitude
+            tracking.latitude = self.locationLatitude
+            uploadContents[0] = self.locationLatitude
+            uploadContents[1] = self.locationLongitude
+            uploadContents[6] = "\(locationObj.speed)"
             self.activityManager.startActivityUpdatesToQueue(self.dataProcessingQueue) {
             data in
             dispatch_async(dispatch_get_main_queue()) {
@@ -94,36 +131,96 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
                     self.activityConfidence = "There was a problem getting confidence"
                 }
                 if data.running {
-                    println("the current activity is running")
+                    //println("the current activity is running")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "running"
+                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    self.activityType = "RUNNING"
                 }; if data.cycling {
-                    println("the current activity is cycling")
+                    //println("the current activity is cycling")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "cycling"
+                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    self.activityType = "ON_BICYCLE"
                 };if data.walking {
-                    println("the current activity is walking")
+                    //println("the current activity is walking")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "walking"
+                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    self.activityType = "WALKING"
                 }; if data.automotive && speed > 15.0{
-                    println("the current activity is automotive")
+                    //println("the current activity is automotive")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "automotive"
+                    self.locationManager.pausesLocationUpdatesAutomatically = false
+                    self.activityType = "IN_VEHICLE"
                 }; if data.stationary{
-                    println("the current activity is stationary")
+                    //println("the current activity is stationary")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "stationary"
+                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    self.activityType = "STILL"
                 }; if data.unknown {
-                    println("the current activity is unknown")
+                    //println("the current activity is unknown")
                     self.activityManager.stopActivityUpdates()
-                    self.activityType = "unknown"
+                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    self.activityType = "UNKNOWN"
                 }
-                println(data.confidence)
-                println(data.timestamp)
+                //var googleActivity :String = self.convertToGoogleActivityType(self.activityType)
+                self.uploadContents[2] = self.activityType
+                self.uploadContents[3] = self.activityConfidence
+                tracking.activity = self.activityType
+                tracking.confidence = self.activityConfidence
                 }
         }
-        sendToServer(locationLongitude, latitudeString: locationLatitude, activityString: activityType, confidenceString: activityConfidence)
-        
+        tracking.timestamp = "\(Int(NSDate().timeIntervalSince1970))"
+        tracking.timezone = "\(NSTimeZone.localTimeZone().abbreviation)"
+        uploadContents[4] = tracking.timestamp
+        uploadContents[5] = tracking.timezone
+        //var googleActivity :String = convertToGoogleActivityType(tracking.activity)
+        //var tempElement = [tracking.longitude, tracking.latitude, tracking.activity, tracking.confidence, tracking.timestamp, tracking.timezone]
+        batchString = batchStringBuilder(uploadContents[4], latitude: uploadContents[1], longitude: uploadContents[0], activity: uploadContents[2], speed: uploadContents[6])
+        uploadString = uploadString + batchString
+        //println(uploadString)
+        if UIDevice.currentDevice().batteryMonitoringEnabled == false{
+            println("cannot monitor battery")
+        }
+        if Reachability.isConnectedToNetwork() {
+            
+        } else {
+            println("cannot connect to web")
+        }
+        if Reachability.isConnectedToNetwork() {
+                //sendToServer(uploadContents[0], latitudeString: uploadContents[1], activityString: uploadContents[2], confidenceString: uploadContents[3], timestampString: uploadContents[4], timeZoneString: uploadContents[5])
+                //sendToWebservice(uploadContents[2], timestampString: uploadContents[4], latitudeString: uploadContents[1], longitudeString: uploadContents[0], speedString: uploadContents[6])
+        } else {
+            //println("currently offline")
+            offlineUpload.append(uploadContents)
+            //println(offlineUpload.count)
+        }
+        var batteryHealthy :Bool
+        if UIDevice.currentDevice().batteryState == UIDeviceBatteryState.Charging || UIDevice.currentDevice().batteryState == UIDeviceBatteryState.Full {
+            batteryHealthy = true
+        } else {
+            batteryHealthy = false
+        }
+        if batteryHealthy && Reachability.isConnectedToNetwork() {
+            //println(offlineUpload.count)
+            //println("Battery is charging and we have internet connectivity!")
+            sendBatchToWebService(uploadString)
+            //for instance in offlineUpload {
+                //sendToServer(instance[0], latitudeString: instance[1], activityString: instance[2], confidenceString: instance[3], timestampString: instance[4], timeZoneString: instance[5])
+                //sendToWebservice(instance[2], timestampString: instance[4], latitudeString: instance[1], longitudeString: instance[0], speedString: instance[6])
+            //}
+            while offlineUpload.count > 0 {
+                offlineUpload.removeLast()
+            }
+        }
+        // print out number of instances stored in database
+        let fetchRequest = NSFetchRequest(entityName: "Tracking")
+        var requestError: NSError?
+        let trackingInstances = managedObjectContext!.executeFetchRequest(fetchRequest,error: &requestError) as! [Tracking!]
+        if trackingInstances.count > 0 {
+            //println("\(trackingInstances.count)")
+            if trackingInstances.count%5 == 0 {
+                //printFromCoreData()
+            }
+        }
 
     }
     
@@ -151,14 +248,90 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
                 NSLog("Denied access: \(locationStatus)")
             }
     }
+    
+    func sendBatchToWebService(urlEnding: String) {
+        //println("sending batch to web service...")
+        var response: NSURLResponse?
+        //formatting
+        var deviceID = UIDevice.currentDevice().identifierForVendor.UUIDString
+        var endURL = urlEnding
+        let substringIndex = count(endURL) - 1
+        let newEnding = endURL.substringToIndex(advance(endURL.startIndex,substringIndex))
+        //upload to web service
+        
+        let myUrl = NSURL(string: "http://ridesharing.cmu-tbank.com/reportActivity.php?userID=1&deviceID\(deviceID)&logs=\(newEnding)")
+        println(myUrl)
+        let request = NSMutableURLRequest(URL:myUrl!)
+        request.HTTPMethod = "POST"
+        var data = NSURLConnection.sendSynchronousRequest(request, returningResponse: &response, error: nil) as NSData?
+        if let httpResponse = response as? NSHTTPURLResponse {
+            //OK
+            if httpResponse.statusCode == 200 {
+                //println("ok")
+                if let json: NSDictionary = NSJSONSerialization.JSONObjectWithData(data!, options: NSJSONReadingOptions.MutableContainers, error: nil) as? NSDictionary {
+                   // println("stage 1 passed")
+                    if let success = json["success"] as? Bool {
+                        //println(success)
+                        if let message = json["message"] as? NSString {
+                            if message == "Activities reported successfully" {
+                                println("clearning stored data")
+                                self.uploadString = ""
+                            }
+                        }
+                    }
+                }
+            } else if httpResponse.statusCode == 400 {
+                println("Bad Request")
+            } else {
+                println("Error is \(httpResponse.statusCode)")
+            }
+        }
+    //println("finishing web upload")
+    }
 
-    func sendToServer(longitudeString: String, latitudeString: String, activityString: String, confidenceString: String) {
+    
+    func sendToWebservice(activityString: String,timestampString: String, latitudeString : String, longitudeString :String, speedString :String) {
+        //let googleActivityType = convertToGoogleActivityType(activityString)
+        var response: NSURLResponse?
+        let deviceString = UIDevice.currentDevice().identifierForVendor.UUIDString
+        let myUrl = NSURL(string: "http://ridesharing.cmu-tbank.com/reportActivity.php?userid=1&deviceid=\(deviceString)&activity=\(activityString)&currenttime=\(timestampString)&lat=\(latitudeString)&lng=\(longitudeString)&speed=\(speedString)")
+        let request = NSMutableURLRequest(URL:myUrl!)
+        request.HTTPMethod = "POST"
+        //println(myUrl)
+        var data = NSURLConnection.sendSynchronousRequest(request, returningResponse: &response, error: nil) as NSData?
+        if let httpResponse = response as? NSHTTPURLResponse {
+            //OK
+            if httpResponse.statusCode == 200 {
+                //println("OK")
+                if let json: NSDictionary = NSJSONSerialization.JSONObjectWithData(data!, options: NSJSONReadingOptions.MutableContainers, error: nil) as? NSDictionary {
+                    //println("stage 1 passed")
+                    if let success = json["success"] as? Bool {
+                        println(success)
+                        if let message = json["message"] as? NSString {
+                            println(message)
+                            if message == "Activities reported successfully" {
+                                println("YAYYY")
+                            }
+                        }
+                    }
+                }
+            } else if httpResponse.statusCode == 400 {
+                println("Bad Request")
+            } else {
+                println("Error is \(httpResponse.statusCode)")
+            }
+        }
+    }
+    
+    func sendToServer(longitudeString: String, latitudeString: String, activityString: String, confidenceString: String, timestampString: String, timeZoneString: String) {
         var batteryLeft = ""
+        //let myUrl = NSURL(string: "http://cmu-tbank.com/~afsaneh@cmu-tbank.com/uploadScript.php")
         let myUrl = NSURL(string: "http://epiwork.hcii.cs.cmu.edu/~afsaneh/script2.php");
+        println(myUrl)
         let request = NSMutableURLRequest(URL:myUrl!);
         request.HTTPMethod = "POST";
         //modify strings for formatting
-        let stringBuffer = ","
+        let stringBuffer = ", "
         let deviceString = UIDevice.currentDevice().identifierForVendor.UUIDString + stringBuffer
         UIDevice.currentDevice().batteryMonitoringEnabled = true
         batteryLeft = "\(UIDevice.currentDevice().batteryLevel*100)"
@@ -169,7 +342,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         let activityString2 = activityString + stringBuffer
         let confidenceString2 = confidenceString + stringBuffer
         // Compose a query string
-        let postString = "deviceID=\(deviceString)&batteryLeft=\(batteryString)&longitude=\(longitudeString2)&latitude=\(latitudeString2)&type=\(activityString2)&confidence=\(confidenceString2)&timestamp=\(NSDate())";
+        let postString = "deviceID=\(deviceString)&batteryLeft=\(batteryString)&longitude=\(longitudeString2)&latitude=\(latitudeString2)&type=\(activityString2)&confidence=\(confidenceString2)&timestamp=\(timestampString)&timezone=\(timeZoneString)";
         
         request.HTTPBody = postString.dataUsingEncoding(NSUTF8StringEncoding);
         
@@ -184,9 +357,33 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         }
         println("data sent to server")
         task.resume()
-        
     }
 
+    func batchStringBuilder(timestamp :String, latitude :String, longitude :String, activity :String, speed :String) -> String{
+        //timestamp@lat@lng@googleActivity@speed is optional.
+        var batchString = ""
+        let batchBuffer = "@"
+        let logEnder = "*"
+        batchString = batchString + timestamp + batchBuffer
+        batchString = batchString + latitude + batchBuffer
+        batchString = batchString + longitude + batchBuffer
+        batchString = batchString + activity + batchBuffer
+        batchString = batchString + speed + logEnder
+        return batchString
+    }
+    
+    func printFromCoreData() {
+        var request = NSFetchRequest(entityName: "tracking")
+        //let appDelegate:AppDelegate = (UIApplication.sharedApplication().delegate as! AppDelegate)
+        //let context:NSManagedObjectContext = appDelegate.managedObjectContext!
+        let predicate = NSPredicate(format: "timestamp > %i", oldTime)
+        var results :NSArray = managedObjectContext!.executeFetchRequest(request, error: nil)!
+        for result in results {
+            println(result)
+        }
+        oldTime = NSDate().timeIntervalSince1970
+        
+    }
     
     func applicationWillResignActive(application: UIApplication) {
         // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.

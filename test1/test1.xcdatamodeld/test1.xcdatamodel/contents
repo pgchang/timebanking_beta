@@ -4,7 +4,16 @@
         <attribute name="menuText" optional="YES" attributeType="String" syncable="YES"/>
         <attribute name="timestamp" optional="YES" attributeType="Date" syncable="YES"/>
     </entity>
+    <entity name="Tracking" representedClassName="test1.Tracking" syncable="YES">
+        <attribute name="activity" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="confidence" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="latitude" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="timestamp" optional="YES" attributeType="String" syncable="YES"/>
+        <attribute name="timezone" optional="YES" attributeType="String" syncable="YES"/>
+    </entity>
     <elements>
         <element name="Menu" positionX="-27" positionY="18" width="128" height="75"/>
+        <element name="Tracking" positionX="-27" positionY="36" width="128" height="135"/>
     </elements>
 </model>
