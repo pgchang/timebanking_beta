@@ -63,7 +63,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
     var activityType = "initAct"
     var activityConfidence = "initConf"
     var offlineUpload = [[String]]()
-    var uploadContents = ["lat", "long", "UNKNOWN", "conf", "timestamp", "timezone", "speed"]
+    var uploadContents = ["lat", "long", "UNKNOWN", "conf", "timestamp", "timezone", "speed", "batteryLeft", "connection"]
     var oldTime = NSDate().timeIntervalSince1970
     var uploadString = ""
     
@@ -82,8 +82,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         locationManager.delegate = self
         //locationManager.locationServicesEnabled
         locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        locationManager.pausesLocationUpdatesAutomatically = true
-        locationManager.distanceFilter = 100
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.distanceFilter = 0
         locationManager.requestAlwaysAuthorization()
     }
     
@@ -133,32 +133,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
                 if data.running {
                     //println("the current activity is running")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    //self.locationManager.pausesLocationUpdatesAutomatically = true
                     self.activityType = "RUNNING"
                 }; if data.cycling {
                     //println("the current activity is cycling")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    //self.locationManager.pausesLocationUpdatesAutomatically = true
                     self.activityType = "ON_BICYCLE"
                 };if data.walking {
                     //println("the current activity is walking")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    //self.locationManager.pausesLocationUpdatesAutomatically = true
                     self.activityType = "WALKING"
                 }; if data.automotive && speed > 15.0{
                     //println("the current activity is automotive")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = false
+                    //self.locationManager.pausesLocationUpdatesAutomatically = false
                     self.activityType = "IN_VEHICLE"
                 }; if data.stationary{
                     //println("the current activity is stationary")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    //self.locationManager.pausesLocationUpdatesAutomatically = true
                     self.activityType = "STILL"
                 }; if data.unknown {
                     //println("the current activity is unknown")
                     self.activityManager.stopActivityUpdates()
-                    self.locationManager.pausesLocationUpdatesAutomatically = true
+                    //self.locationManager.pausesLocationUpdatesAutomatically = true
                     self.activityType = "UNKNOWN"
                 }
                 //var googleActivity :String = self.convertToGoogleActivityType(self.activityType)
@@ -170,47 +170,70 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         }
         tracking.timestamp = "\(Int(NSDate().timeIntervalSince1970))"
         tracking.timezone = "\(NSTimeZone.localTimeZone().abbreviation)"
-        uploadContents[4] = tracking.timestamp
+        //uploadContents[4] = tracking.timestamp
         uploadContents[5] = tracking.timezone
+        //
+        //
+        //
+        let date = NSDate();
+        let dateFormatter = NSDateFormatter()
+        //To prevent displaying either date or time, set the desired style to NoStyle.
+        dateFormatter.timeStyle = NSDateFormatterStyle.LongStyle //Set time style
+        dateFormatter.dateStyle = NSDateFormatterStyle.LongStyle //Set date style
+        dateFormatter.timeZone = NSTimeZone()
+        let localDate = dateFormatter.stringFromDate(date)
+        uploadContents[4] = localDate
         //var googleActivity :String = convertToGoogleActivityType(tracking.activity)
         //var tempElement = [tracking.longitude, tracking.latitude, tracking.activity, tracking.confidence, tracking.timestamp, tracking.timezone]
-        batchString = batchStringBuilder(uploadContents[4], latitude: uploadContents[1], longitude: uploadContents[0], activity: uploadContents[2], speed: uploadContents[6])
+        //batchString = batchStringBuilder(uploadContents[4], latitude: uploadContents[1], longitude: uploadContents[0], activity: uploadContents[2], speed: uploadContents[6])
         uploadString = uploadString + batchString
         //println(uploadString)
         if UIDevice.currentDevice().batteryMonitoringEnabled == false{
             println("cannot monitor battery")
         }
-        if Reachability.isConnectedToNetwork() {
-            
-        } else {
+        var batteryLeft = ""
+        batteryLeft = "\(UIDevice.currentDevice().batteryLevel*100)"
+        uploadContents[7] = batteryLeft
+        //offlineUpload.append(uploadContents)
+        //println(offlineUpload)
+        if Reachability.isConnectedToNetwork() == false {
             println("cannot connect to web")
         }
+        println(offlineUpload.count)
         if Reachability.isConnectedToNetwork() {
-                //sendToServer(uploadContents[0], latitudeString: uploadContents[1], activityString: uploadContents[2], confidenceString: uploadContents[3], timestampString: uploadContents[4], timeZoneString: uploadContents[5])
+            sendToServer(uploadContents[0], latitudeString: uploadContents[1], activityString: uploadContents[2], confidenceString: uploadContents[3], timestampString: uploadContents[4], timeZoneString: uploadContents[5], batteryChargeLeft : batteryLeft, connectionString: "Connected")
                 //sendToWebservice(uploadContents[2], timestampString: uploadContents[4], latitudeString: uploadContents[1], longitudeString: uploadContents[0], speedString: uploadContents[6])
         } else {
             //println("currently offline")
+            uploadContents[8] = "Not connected"
             offlineUpload.append(uploadContents)
             //println(offlineUpload.count)
         }
+        
         var batteryHealthy :Bool
         if UIDevice.currentDevice().batteryState == UIDeviceBatteryState.Charging || UIDevice.currentDevice().batteryState == UIDeviceBatteryState.Full {
             batteryHealthy = true
         } else {
             batteryHealthy = false
         }
+        if Reachability.isConnectedToNetwork() && offlineUpload.count > 0 {
+            sendToServerBatch()
+        }
+        /*
         if batteryHealthy && Reachability.isConnectedToNetwork() {
             //println(offlineUpload.count)
             //println("Battery is charging and we have internet connectivity!")
-            sendBatchToWebService(uploadString)
+            //sendBatchToWebService(uploadString)
+            if offlineUpload.count > 0 {
+                sendToServerBatch()
+            }
             //for instance in offlineUpload {
-                //sendToServer(instance[0], latitudeString: instance[1], activityString: instance[2], confidenceString: instance[3], timestampString: instance[4], timeZoneString: instance[5])
+                //sendToServer(instance[0], latitudeString: instance[1], activityString: instance[2], confidenceString: instance[3], timestampString: instance[4], timeZoneString: instance[5], batteryChargeLeft: instance[7])
                 //sendToWebservice(instance[2], timestampString: instance[4], latitudeString: instance[1], longitudeString: instance[0], speedString: instance[6])
             //}
-            while offlineUpload.count > 0 {
-                offlineUpload.removeLast()
-            }
+           
         }
+        */
         // print out number of instances stored in database
         let fetchRequest = NSFetchRequest(entityName: "Tracking")
         var requestError: NSError?
@@ -323,10 +346,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         }
     }
     
-    func sendToServer(longitudeString: String, latitudeString: String, activityString: String, confidenceString: String, timestampString: String, timeZoneString: String) {
-        var batteryLeft = ""
+     func sendToServerBatch() {
+        //var batteryLeft = ""
+        //batteryLeft = "\(UIDevice.currentDevice().batteryLevel*100)"
+        let myUrl = NSURL(string: "http://epiwork.hcii.cs.cmu.edu/~afsaneh/ChristianHybrid.php")
+        let request = NSMutableURLRequest(URL:myUrl!)
+        request.HTTPMethod = "POST"
+        var postString = "\(UIDevice.currentDevice().identifierForVendor.UUIDString)"
+        
+        while offlineUpload.count > 0 {
+        //for i in outputArray {
+            // ["lat", "long", "UNKNOWN", "conf", "timestamp", "timezone", "speed", "batteryLeft"]
+            println(offlineUpload[0])
+            postString = postString + "Device ID=\(UIDevice.currentDevice().identifierForVendor.UUIDString), batteryLeft=\(offlineUpload[0][7]), longitude=\(offlineUpload[0][1]), latitude=\(offlineUpload[0][0]), type=\(offlineUpload[0][2]), confidence=\(offlineUpload[0][3]), timestamp=\(offlineUpload[0][4]), timezone=\(offlineUpload[0][5]),connection=\(offlineUpload[0][8])\n)"
+            offlineUpload.removeAtIndex(0)
+        }
+        
+        println(postString)
+        request.HTTPBody = postString.dataUsingEncoding(NSUTF8StringEncoding)
+        let task = NSURLSession.sharedSession().dataTaskWithRequest(request) {
+            data, response, error in
+            if error != nil {
+                println("error=\(error)")
+                return
+            }
+            var err: NSError?
+            var myJSON = NSJSONSerialization.JSONObjectWithData(data, options: .MutableLeaves, error:&err) as? NSDictionary
+        }
+        println("data sent to server")
+        task.resume()
+    }
+    
+    func sendToServer(longitudeString: String, latitudeString: String, activityString: String, confidenceString: String, timestampString: String, timeZoneString: String, batteryChargeLeft :String, connectionString: String) {
         //let myUrl = NSURL(string: "http://cmu-tbank.com/~afsaneh@cmu-tbank.com/uploadScript.php")
-        let myUrl = NSURL(string: "http://epiwork.hcii.cs.cmu.edu/~afsaneh/script2.php");
+        let myUrl = NSURL(string: "http://epiwork.hcii.cs.cmu.edu/~afsaneh/ChristianHybrid.php");
         println(myUrl)
         let request = NSMutableURLRequest(URL:myUrl!);
         request.HTTPMethod = "POST";
@@ -334,15 +387,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CLLocationManagerDelegate
         let stringBuffer = ", "
         let deviceString = UIDevice.currentDevice().identifierForVendor.UUIDString + stringBuffer
         UIDevice.currentDevice().batteryMonitoringEnabled = true
-        batteryLeft = "\(UIDevice.currentDevice().batteryLevel*100)"
-        println(batteryLeft)
-        let batteryString = batteryLeft + stringBuffer
+        let batteryString = batteryChargeLeft + stringBuffer
         let longitudeString2 = longitudeString + stringBuffer
         let latitudeString2 = latitudeString + stringBuffer
         let activityString2 = activityString + stringBuffer
         let confidenceString2 = confidenceString + stringBuffer
         // Compose a query string
-        let postString = "deviceID=\(deviceString)&batteryLeft=\(batteryString)&longitude=\(longitudeString2)&latitude=\(latitudeString2)&type=\(activityString2)&confidence=\(confidenceString2)&timestamp=\(timestampString)&timezone=\(timeZoneString)";
+        let postString = "deviceID=\(deviceString)&batteryLeft=\(batteryString)&longitude=\(longitudeString2)&latitude=\(latitudeString2)&type=\(activityString2)&confidence=\(confidenceString2)&timestamp=\(timestampString)&timezone=\(timeZoneString)&connection=\(connectionString)";
         
         request.HTTPBody = postString.dataUsingEncoding(NSUTF8StringEncoding);
         
